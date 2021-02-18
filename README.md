@@ -3,3 +3,6 @@
 * 업데이트 사항
     * 2009/05
         * 원본 소스 : http://www.brokestream.com/tinyserial.html
+    * 2021/02/18
+        * BaudRate 추가
+        * 엔터 모드 CRLF 모드 추가

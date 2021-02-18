@@ -65,6 +65,7 @@ void print_status(int fd) {
 	fprintf(stderr, "\r\n");
 }
 
+int is_crlf = 0;
 int main(int argc, char *argv[])
 {
 	int comfd;
@@ -82,12 +83,17 @@ int main(int argc, char *argv[])
 		{"38400", B38400},
 		{"57600", B57600},
 		{"115200", B115200},
+		{"230400", B230400},
+		{"460800", B460800},
+		{"500000", B500000},
+		{"576000", B576000},
+		{"921600", B921600},
 		{NULL, 0}
 	};
 	int speed = B9600;
 
 	if(argc < 2) {
-		fprintf(stderr, "example: %s /dev/ttyS0 [115200]\n", argv[0]);
+		fprintf(stderr, "example: %s /dev/ttyS0 [115200] <CRLF>\n", argv[0]);
 		exit(1);
 	}
 
@@ -106,6 +112,16 @@ int main(int argc, char *argv[])
 				fprintf(stderr, "setting speed %s\n", s->name);
 				break;
 			}
+		}
+
+		if(argc > 3)
+		{
+			if(strcmp(argv[3], "CRLF") == 0)
+			{
+				is_crlf = 1;
+				printf("Enter is CRLF\n");
+			}
+			
 		}
 	}
 
@@ -163,13 +179,13 @@ int main(int argc, char *argv[])
 	return 0;
 }
 
-
 int transfer_byte(int from, int to, int is_control) {
 	char c;
 	int ret;
 	do {
 		ret = read(from, &c, 1);
 	} while (ret < 0 && errno == EINTR);
+
 	if(ret == 1) {
 		if(is_control) {
 			if(c == '\x01') { // C-a
@@ -179,12 +195,24 @@ int transfer_byte(int from, int to, int is_control) {
 				return 0;
 			}
 		}
+
 		while(write(to, &c, 1) == -1) {
 			if(errno!=EAGAIN && errno!=EINTR) { perror("write failed"); break; }
 		}
 	} else {
 		fprintf(stderr, "\nnothing to read. probably port disconnected.\n");
 		return -2;
+	}
+
+	if(is_crlf && from == STDIN_FILENO)
+	{
+		if(c == '\r')
+		{
+			char ch = '\n';
+			while(write(to, &ch, 1) == -1) {
+				if(errno!=EAGAIN && errno!=EINTR) { perror("write failed"); break; }
+			}
+		}
 	}
 	return 0;
 }
