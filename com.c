@@ -46,6 +46,10 @@
 #include <fcntl.h>
 #include <errno.h>
 
+#ifdef __APPLE__
+  #include <IOKit/serial/ioss.h>
+#endif
+
 int transfer_byte(int from, int to, int is_control);
 
 typedef struct {char *name; int flag; } speed_spec;
@@ -83,14 +87,17 @@ int main(int argc, char *argv[])
 		{"38400", B38400},
 		{"57600", B57600},
 		{"115200", B115200},
+	  #ifdef __linux__
 		{"230400", B230400},
 		{"460800", B460800},
 		{"500000", B500000},
 		{"576000", B576000},
 		{"921600", B921600},
+	  #endif
 		{NULL, 0}
 	};
 	int speed = B9600;
+	int old_speed = B9600;
 
 	if(argc < 2) {
 		fprintf(stderr, "example: %s /dev/ttyS0 [115200] <CRLF>\n", argv[0]);
@@ -135,6 +142,19 @@ int main(int argc, char *argv[])
 	newkey.c_cc[VMIN]=1;
 	newkey.c_cc[VTIME]=0;
 	tcflush(STDIN_FILENO, TCIFLUSH);
+  #ifdef __APPLE__
+	if (ioctl(comfd, IOSSIOSPEED, &speed) == -1) {
+		printf("Error %d calling ioctl( ..., IOSSIOSPEED, ... )\n", errno);
+	}
+	if (cfsetispeed(&newtio, speed) < 0) {
+		perror("cfsetispeed");
+		exit(1);
+	}
+	if (cfsetospeed(&newtio, speed) < 0) {
+		perror("cfsetospeed");
+		exit(1);
+	}
+  #endif
 	tcsetattr(STDIN_FILENO,TCSANOW,&newkey);
 
 
@@ -173,6 +193,19 @@ int main(int argc, char *argv[])
 	}
 
 	tcsetattr(comfd,TCSANOW,&oldtio);
+  #ifdef __APPLE__
+	if (ioctl(comfd, IOSSIOSPEED, &old_speed) == -1) {
+		printf("Error %d calling ioctl( ..., IOSSIOSPEED, ... )\n", errno);
+	}
+	if (cfsetispeed(&oldtio, old_speed) < 0) {
+		perror("cfsetispeed");
+		exit(1);
+	}
+	if (cfsetospeed(&oldtio, old_speed) < 0) {
+		perror("cfsetospeed");
+		exit(1);
+	}
+  #endif
 	tcsetattr(STDIN_FILENO,TCSANOW,&oldkey);
 	close(comfd);
 
