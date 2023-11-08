@@ -97,7 +97,6 @@ int main(int argc, char *argv[])
 		{NULL, 0}
 	};
 	int speed = B9600;
-	int old_speed = B9600;
 
 	if(argc < 2) {
 		fprintf(stderr, "example: %s /dev/ttyS0 [115200] <CRLF>\n", argv[0]);
@@ -193,19 +192,6 @@ int main(int argc, char *argv[])
 	}
 
 	tcsetattr(comfd,TCSANOW,&oldtio);
-  #ifdef __APPLE__
-	if (ioctl(comfd, IOSSIOSPEED, &old_speed) == -1) {
-		printf("Error %d calling ioctl( ..., IOSSIOSPEED, ... )\n", errno);
-	}
-	if (cfsetispeed(&oldtio, old_speed) < 0) {
-		perror("cfsetispeed");
-		exit(1);
-	}
-	if (cfsetospeed(&oldtio, old_speed) < 0) {
-		perror("cfsetospeed");
-		exit(1);
-	}
-  #endif
 	tcsetattr(STDIN_FILENO,TCSANOW,&oldkey);
 	close(comfd);
 
