@@ -46,16 +46,12 @@
 #include <fcntl.h>
 #include <errno.h>
 
-#ifdef __APPLE__
-  #include <IOKit/serial/ioss.h>
-#endif
+typedef struct {
+	char *name;
+	int flag; 
+} speed_spec;
 
-int transfer_byte(int from, int to, int is_control);
-
-typedef struct {char *name; int flag; } speed_spec;
-
-
-void print_status(int fd) {
+static void print_status(int fd) {
 	int status;
 	unsigned int arg;
 	status = ioctl(fd, TIOCMGET, &arg);
@@ -69,7 +65,33 @@ void print_status(int fd) {
 	fprintf(stderr, "\r\n");
 }
 
-int is_crlf = 0;
+static int transfer_byte(int from, int to, int is_control) {
+	char c;
+	int ret;
+	do {
+		ret = read(from, &c, 1);
+	} while (ret < 0 && errno == EINTR);
+
+	if(ret == 1) {
+		if(is_control) {
+			if(c == '\x01') { // C-a
+				return -1;
+			} else if(c == '\x18') { // C-x
+				print_status(to);
+				return 0;
+			}
+		}
+
+		while(write(to, &c, 1) == -1) {
+			if(errno!=EAGAIN && errno!=EINTR) { perror("write failed"); break; }
+		}
+	} else {
+		fprintf(stderr, "\nnothing to read. probably port disconnected.\n");
+		return -2;
+	}
+	return 0;
+}
+
 int main(int argc, char *argv[])
 {
 	int comfd;
@@ -97,7 +119,6 @@ int main(int argc, char *argv[])
 		{NULL, 0}
 	};
 	int speed = B9600;
-	int old_speed = B9600;
 
 	if(argc < 2) {
 		fprintf(stderr, "example: %s /dev/ttyS0 [115200] <CRLF>\n", argv[0]);
@@ -120,32 +141,22 @@ int main(int argc, char *argv[])
 				break;
 			}
 		}
-
-		if(argc > 3)
-		{
-			if(strcmp(argv[3], "CRLF") == 0)
-			{
-				is_crlf = 1;
-				printf("Enter is CRLF\n");
-			}
-			
-		}
 	}
-
-	fprintf(stderr, "C-a exit, C-x modem lines status\n");
 
 	tcgetattr(STDIN_FILENO,&oldkey);
-	newkey.c_cflag = B9600 | CRTSCTS | CS8 | CLOCAL | CREAD;
-	newkey.c_iflag = IGNPAR;
-	newkey.c_oflag = 0;
-	newkey.c_lflag = 0;
-	newkey.c_cc[VMIN]=1;
-	newkey.c_cc[VTIME]=0;
+	tcgetattr(comfd,&oldtio); // save current port settings 
+
+	fprintf(stderr, "C-a exit, C-x modem lines status\n");
+	newkey.c_cflag     = B9600 | CRTSCTS | CS8 | CLOCAL | CREAD;
+	newkey.c_iflag     = IGNPAR;
+	newkey.c_oflag     = 0;
+	newkey.c_lflag     = 0;
+	newkey.c_cc[VMIN]  = 1;
+	newkey.c_cc[VTIME] = 0;
 	tcflush(STDIN_FILENO, TCIFLUSH);
+	tcsetattr(STDIN_FILENO, TCSANOW, &newkey);
+
   #ifdef __APPLE__
-	if (ioctl(comfd, IOSSIOSPEED, &speed) == -1) {
-		printf("Error %d calling ioctl( ..., IOSSIOSPEED, ... )\n", errno);
-	}
 	if (cfsetispeed(&newtio, speed) < 0) {
 		perror("cfsetispeed");
 		exit(1);
@@ -154,19 +165,17 @@ int main(int argc, char *argv[])
 		perror("cfsetospeed");
 		exit(1);
 	}
+	newtio.c_cflag     = CS8 | CLOCAL | CREAD;
+  #else
+	newtio.c_cflag     = speed | CS8 | CLOCAL | CREAD;
   #endif
-	tcsetattr(STDIN_FILENO,TCSANOW,&newkey);
-
-
-	tcgetattr(comfd,&oldtio); // save current port settings 
-	newtio.c_cflag = speed | CS8 | CLOCAL | CREAD;
-	newtio.c_iflag = IGNPAR;
-	newtio.c_oflag = 0;
-	newtio.c_lflag = 0;
-	newtio.c_cc[VMIN]=1;
-	newtio.c_cc[VTIME]=0;
+	newtio.c_iflag     = IGNPAR;
+	newtio.c_oflag     = 0;
+	newtio.c_lflag     = 0;
+	newtio.c_cc[VMIN]  = 1;
+	newtio.c_cc[VTIME] = 0;
 	tcflush(comfd, TCIFLUSH);
-	tcsetattr(comfd,TCSANOW,&newtio);
+	tcsetattr(comfd, TCSANOW, &newtio);
 
 	print_status(comfd);
 
@@ -193,61 +202,8 @@ int main(int argc, char *argv[])
 	}
 
 	tcsetattr(comfd,TCSANOW,&oldtio);
-  #ifdef __APPLE__
-	if (ioctl(comfd, IOSSIOSPEED, &old_speed) == -1) {
-		printf("Error %d calling ioctl( ..., IOSSIOSPEED, ... )\n", errno);
-	}
-	if (cfsetispeed(&oldtio, old_speed) < 0) {
-		perror("cfsetispeed");
-		exit(1);
-	}
-	if (cfsetospeed(&oldtio, old_speed) < 0) {
-		perror("cfsetospeed");
-		exit(1);
-	}
-  #endif
-	tcsetattr(STDIN_FILENO,TCSANOW,&oldkey);
+  	tcsetattr(STDIN_FILENO,TCSANOW,&oldkey);
 	close(comfd);
 
 	return 0;
 }
-
-int transfer_byte(int from, int to, int is_control) {
-	char c;
-	int ret;
-	do {
-		ret = read(from, &c, 1);
-	} while (ret < 0 && errno == EINTR);
-
-	if(ret == 1) {
-		if(is_control) {
-			if(c == '\x01') { // C-a
-				return -1;
-			} else if(c == '\x18') { // C-x
-				print_status(to);
-				return 0;
-			}
-		}
-
-		while(write(to, &c, 1) == -1) {
-			if(errno!=EAGAIN && errno!=EINTR) { perror("write failed"); break; }
-		}
-	} else {
-		fprintf(stderr, "\nnothing to read. probably port disconnected.\n");
-		return -2;
-	}
-
-	if(is_crlf && from == STDIN_FILENO)
-	{
-		if(c == '\r')
-		{
-			char ch = '\n';
-			while(write(to, &ch, 1) == -1) {
-				if(errno!=EAGAIN && errno!=EINTR) { perror("write failed"); break; }
-			}
-		}
-	}
-	return 0;
-}
-
-
